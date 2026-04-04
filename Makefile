@@ -50,6 +50,4 @@ release_zips: release_x86_64 release_arm64 playfab
 	rm -r ./out/mcpelauncher-updates-*-release.zip || true
 	cd android-x86_64 && zip -r ../out/mcpelauncher-updates-x86_64-release.zip *.so patches/*
 	cd android-arm64 && zip -r ../out/mcpelauncher-updates-arm64-release.zip *.so patches/*
-	zip ./out/mcpelauncher-updates-x86_64-release.zip NOTICE.txt
-	zip ./out/mcpelauncher-updates-arm64-release.zip NOTICE.txt
 	@echo "Release zip files created."
