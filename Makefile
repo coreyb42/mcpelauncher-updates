@@ -46,6 +46,7 @@ release_arm64: build_protoc
 
 release_zips: release_x86_64 release_arm64 playfab
 	@echo "Creating release zip files..."
+	mkdir -p out
 	rm -r ./out/mcpelauncher-updates-*-release.zip || true
 	cd android-x86_64 && zip -r ../out/mcpelauncher-updates-x86_64-release.zip *.so patches/*
 	cd android-arm64 && zip -r ../out/mcpelauncher-updates-arm64-release.zip *.so patches/*
