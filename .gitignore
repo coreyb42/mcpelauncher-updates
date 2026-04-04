@@ -1,5 +1,7 @@
 build/
 .*/
 PlayFabMultiplayer/
-release_*/
 PlayFabMultiplayer.AndroidRelease.zip
+android-*
+out/
+.env

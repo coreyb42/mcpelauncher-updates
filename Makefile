@@ -6,22 +6,30 @@ clean:
 	rm -rf out android-x86_64 android-arm64 build-protoc
 
 $(PLAYFAB_ZIP):
-    @echo "Downloading PlayFab ZIP..."
-    @curl -L -o $(PLAYFAB_ZIP) $(PLAYFAB_URL)
+	@echo "Downloading PlayFab ZIP..."
+	@curl -L -o $(PLAYFAB_ZIP) $(PLAYFAB_URL)
 
 .PHONY: playfab
 playfab: $(PLAYFAB_ZIP)
-    @echo "Extracting PlayFab..."
-    @rm -rf $(PLAYFAB_DIR)
-    @unzip -q $(PLAYFAB_ZIP) -d $(PLAYFAB_DIR)
+	@echo "Extracting PlayFab..."
+	@rm -rf $(PLAYFAB_DIR)
+	@unzip -q $(PLAYFAB_ZIP) -d $(PLAYFAB_DIR)
 
-    @echo "Removing old arm64-v8a from patches..."
-    @rm -rf android-arm64/patches/arm64-v8a
+	@echo "Removing old arm64-v8a from patches..."
+	@rm -rf android-arm64/patches
+	@mkdir android-arm64/patches
 
-    @echo "Copying new arm64-v8a..."
-    @cp -r $(PLAYFAB_DIR)/bin/arm64-v8a android-arm64/patches/
+	@echo "Removing old x86_64 from patches..."
+	@rm -rf android-x86_64/patches
+	@mkdir android-x86_64/patches
 
-    @echo "PlayFab setup complete."
+	@echo "Copying new arm64-v8a..."
+	@cp $(PLAYFAB_DIR)/bin/arm64-v8a/* android-arm64/patches/
+
+	@echo "Copying new arm64-v8a..."
+	@cp $(PLAYFAB_DIR)/bin/x86_64/* android-x86_64/patches/
+
+	@echo "PlayFab setup complete."
 
 
 build_protoc:
