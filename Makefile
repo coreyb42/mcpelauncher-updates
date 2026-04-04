@@ -8,10 +8,12 @@ build_protoc:
 release_x86_64: build_protoc
 	cmake -DANDROID_PLATFORM=21 -DANDROID_ABI=x86_64 -S . -B android-x86_64 -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake -DProtobuf_PROTOC_EXECUTABLE=build-protoc/protoc -DProtobuf_INCLUDE_DIR=protobuf/src -DCMAKE_BUILD_TYPE=Release
 	cmake --build android-x86_64 --parallel
+	mkdir -p android-x86_64/patches
 
 release_arm64: build_protoc
 	cmake -DANDROID_PLATFORM=21 -DANDROID_ABI=arm64-v8a -S . -B android-arm64 -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake -DProtobuf_PROTOC_EXECUTABLE=build-protoc/protoc -DProtobuf_INCLUDE_DIR=protobuf/src -DCMAKE_BUILD_TYPE=Release
 	cmake --build android-arm64 --parallel
+	mkdir -p android-arm64/patches
 
 release_zips: release_x86_64 release_arm64
 	@echo "Creating release zip files..."
