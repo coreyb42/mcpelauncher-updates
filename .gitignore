@@ -1,2 +1,5 @@
 build/
 .*/
+PlayFabMultiplayer/
+release_*/
+PlayFabMultiplayer.AndroidRelease.zip
