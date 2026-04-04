@@ -289,7 +289,7 @@ void validate(void(*cbk)()) {
 
   auto lambda = +[](JavaVM* vm, void* reserved) -> jint {
     IF_DEBUG(std::cout << cryptstring("JNI_OnLoad") << std::endl);
-    std::ifstream token_file(cryptstring("/data/data/com.mojang.minecraftpe/pass.token").c_str(), std::ios::binary);
+    std::ifstream token_file(cryptstring("/data/data/com.mojang.minecraftpe/mcpelauncher-updates-oss.pass").c_str(), std::ios::binary);
     if(token_file.is_open()) {
         auto token = OUR_ENCRYPTED_TOKEN;
         std::stringstream val;
