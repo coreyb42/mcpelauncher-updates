@@ -3,112 +3,23 @@ name: CMake
 on:
   push:
 
-env:
-  BUILD_TYPE: Release
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        abi: ["x86_64", "arm64-v8a", "x86", "armeabi-v7a" ]
-        include:
-        - abi: x86_64
-          ndktarget: x86_64-linux-android-
-        - abi: x86
-          ndktarget: i686-linux-android-
-        - abi: armeabi-v7a
-          openssltarget: android-arm
-          ndktarget: arm-linux-androideabi-
-        - abi: arm64-v8a
-          openssltarget: android-arm64
-          ndktarget: aarch64-linux-android-
     steps:
     - run: sudo apt update && sudo apt install llvm g++ ninja-build
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v6
     - uses: nttld/setup-ndk@v1
       id: setup-ndk
       with:
         ndk-version: r21e
         add-to-path: true
-    - uses: actions/checkout@v2
-      with:
-        repository: "openssl/openssl"
-        ref: master
-        path: openssl
-        
-    - name: Configure and build Openssl
-      run: |
-        export PATH="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/:$PATH"
-        ./Configure -latomic ${{ matrix.openssltarget || format('android-{0}', matrix.abi) }} && make build_libs
-      env:
-        ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-        LD: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{matrix.ndktarget}}ld
-        RANLIB: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{matrix.ndktarget}}ranlib
-      working-directory: ${{github.workspace}}/openssl
-      
-    - uses: actions/upload-artifact@v2
-      with:
-        name: openssl-${{format('android-{0}', matrix.abi)}}
-        path: |
-          openssl/libssl.so
-          openssl/libcrypto.so
-    - uses: actions/checkout@v2
-      with:
-        repository: "protocolbuffers/protobuf"
-        ref: 3.18.x
-        path: protobuf
-        submodules: recursive
-    - name: Configure Protobuf
-      run: cmake -B ${{github.workspace}}/buildprotobuf -S protobuf/cmake -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake -DANDROID_ABI=${{ matrix.abi }} -Dprotobuf_BUILD_TESTS=OFF
-    - name: Build Protobuf
-      run: cmake --build ${{github.workspace}}/buildprotobuf --config ${{env.BUILD_TYPE}} --target libprotobuf
-    - name: Configure Protoc
-      run: cmake -B ${{github.workspace}}/buildprotobufhost -S protobuf/cmake -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -Dprotobuf_BUILD_TESTS=OFF
-    - name: Build Protoc
-      run: cmake --build ${{github.workspace}}/buildprotobufhost --config ${{env.BUILD_TYPE}} --target protoc
-    - name: Configure
-      run: cmake -B ${{github.workspace}}/build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake -DANDROID_ABI=${{ matrix.abi }} "-DProtobuf_SRC_ROOT_FOLDER=${{github.workspace}}/protobuf/src" "-DProtobuf_INCLUDE_DIR=${{github.workspace}}/protobuf/src" "-DProtobuf_PROTOC_EXECUTABLE=${{github.workspace}}/buildprotobufhost/protoc" "-DProtobuf_LIBRARY=${{github.workspace}}/buildprotobuf/libprotobuf.a" "-DOPENSSL_SSL_LIBRARY=${{github.workspace}}/openssl/libssl.so" "-DOPENSSL_CRYPTO_LIBRARY=${{github.workspace}}/openssl/libcrypto.so" "-DOPENSSL_INCLUDE_DIR=${{github.workspace}}/openssl/include" "-DCMAKE_CXX_FLAGS=-Wl,--strip-all -fvisibility=hidden"
     - name: Build
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} --target mcpelauncherupdates
-    
-    - uses: actions/upload-artifact@v2
-      with:
-        name: update-${{format('android-{0}', matrix.abi)}}
-        path: |
-          build/libmcpelauncherupdates.so      
-  deploy:
-    needs: build
-    name: Deploy to mcpelauncher-updates-bin
-    runs-on: ubuntu-latest
-    steps:
-    - uses: webfactory/ssh-agent@v0.5.3
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-    - name: setup git
       run: |
-        git config --global user.email "action@github.com"
-        git config --global user.name "GitHub Action"
-    - uses: actions/download-artifact@v2
+        make release_zips
+    
+    - uses: actions/upload-artifact@v7
       with:
-        path: "artifacts"
-    - run: |
-        shopt -s globstar
-        git clone git@github.com:minecraft-linux/mcpelauncher-updates-bin.git mcpelauncher-updates-bin
-        rm mcpelauncher-updates-bin/*/*.so || :
-        git -C mcpelauncher-updates-bin checkout armeabi-v7a/libmodloader.so || :
-        git -C mcpelauncher-updates-bin checkout arm64-v8a/libmodloader.so || :
-        mkdir -p mcpelauncher-updates-bin/x86
-        cp artifacts/*-x86/*.so mcpelauncher-updates-bin/x86/
-        mkdir -p mcpelauncher-updates-bin/x86_64
-        cp artifacts/*-x86_64/*.so mcpelauncher-updates-bin/x86_64/
-        mkdir -p mcpelauncher-updates-bin/armeabi-v7a
-        cp artifacts/*-armeabi-v7a/*.so mcpelauncher-updates-bin/armeabi-v7a/
-        mkdir -p mcpelauncher-updates-bin/arm64-v8a
-        cp artifacts/*-arm64-v8a/*.so mcpelauncher-updates-bin/arm64-v8a/
-        patchelf --set-rpath \$ORIGIN mcpelauncher-updates-bin/armeabi-v7a/*.so mcpelauncher-updates-bin/arm64-v8a/*.so
-        pushd mcpelauncher-updates-bin
-        git add .
-        git commit -m "Deploy"
-        git push
+        name: mods
+        path: |
+          out/*.zip      
