@@ -1,228 +1,338 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include "types.hpp"
+#include <cstring>
 #include <dlfcn.h>
+#include <iostream>
+#include <link.h>
 #include <sys/mman.h>
-#include <playapi/api.h>
-#include <playapi/device_info.h>
-#include <playapi/login.h>
-#include <playapi/file_login_cache.h>
-#include <string> 
-#include <jnivm/vm.h>
-#include <jnivm/env.h>
+#include <vector>
+#include <jni.h>
+#include <filesystem>
+#include <cmath>
+#include <jni.h>
 
-#ifdef NDEBUG
-#define printf(...)
+struct cryptstring {
+  const char* _ptr;
+  cryptstring(const char* ptr) {
+    _ptr = ptr;
+  }
+
+  const char* c_str() {
+    return _ptr;
+  }
+
+  operator const char*() {
+    return _ptr;
+  }
+  operator std::filesystem::path() {
+    return _ptr;
+  }
+  operator std::string() {
+    return _ptr;
+  }
+};
+
+#ifndef ENABLE_VALIDATION
+JNIEnv *env;
 #endif
 
-void (*mcpelauncher_preinithook)(const char*sym, void*val, void **orig);
+#ifdef ENABLE_VALIDATION
+#include "validation.hpp"
+#endif
 
-signed char scrollval = 0;
+bool files_identical(const std::filesystem::path& a, const std::filesystem::path& b) {
+    std::cout << "start files_identical " << a << " " << b << std::endl;
+    std::error_code ec;
+    auto sa = std::filesystem::file_size(a, ec);
+    if (ec) return false;
+    auto sb = std::filesystem::file_size(b, ec);
+    if (ec) return false;
+    if (sa != sb) return false;
 
-char (*Mouse_feed_org)(char, char, short, short, short, short);
-void Mouse_feed(char a, char b, short c, short d, short e, short f) {
-    if(a == 4 && b != 0) {
-        scrollval = (signed char&)b;
-        if(scrollval < 0) {
-            Mouse_feed_org(a, b, c, d, e, f);
-        }
-    } else {
-        Mouse_feed_org(a, b, c, d, e, f);
+    std::ifstream fa(a, std::ios::binary);
+    std::ifstream fb(b, std::ios::binary);
+    if (!fa || !fb) return false;
+
+    static const std::size_t BUF_SIZE = 1 << 16;
+    std::vector<char> ba(BUF_SIZE), bb(BUF_SIZE);
+
+    while (fa && fb) {
+        fa.read(ba.data(), BUF_SIZE);
+        fb.read(bb.data(), BUF_SIZE);
+        std::streamsize ra = fa.gcount();
+        std::streamsize rb = fb.gcount();
+        if (ra != rb) return false;
+        if (ra == 0) break;
+        if (!std::equal(ba.begin(), ba.begin() + ra, bb.begin())) return false;
     }
+    std::cout << "end" << a << " " << b << std::endl;
+    return true;
 }
-void (*enqueueButtonPressAndRelease)(void*q, unsigned int, int, int);
-void enqueueButtonPressAndRelease_hook(void*q, unsigned int c, int d, int e) {
-    enqueueButtonPressAndRelease(q, c, d, e);
-    printf("enqueueButtonPressAndRelease_hook: %d %d %d\n", c, d, e);
-    abort();
-}
-void (*MouseMapper_tick_org)(void*a,void*b,void*c);
-void MouseMapper_tick(void*a,void*b,void*c) {
-    MouseMapper_tick_org(a, b, c);
-    if (scrollval > 0 && enqueueButtonPressAndRelease) {
-        enqueueButtonPressAndRelease(b, 425082297, 0, 0);
-        scrollval = 0;
-    }
-}
-int (*JNI_OnLoad_) (void*,void*);
-void* pthread_getattr_np_org;
 
-void* mremap_fake(void *old_address, size_t old_size,
-                    size_t new_size, int flags, ...) {
-        return MAP_FAILED;
-}
-void*_ZNK11AppPlatform12isLANAllowedEv;
-void*__ZNK11AppPlatform12isLANAllowedEv;
+std::filesystem::path make_backup_path(const std::filesystem::path& original) {
+    std::filesystem::path base = original;
+    std::filesystem::path bck = base;
+    bck += ".bck";
+    if (!std::filesystem::exists(bck)) return bck;
 
-extern "C" void __attribute__ ((visibility ("default"))) mod_preinit() {
-    auto h = dlopen("libmcpelauncher_mod.so", 0);
-    if(!h) {
-        return;
+    // try .bck1, .bck2, ...
+    for (int i = 1; i < 10000; ++i) {
+        std::filesystem::path candidate = base;
+        candidate += ".bck" + std::to_string(i);
+        if (!std::filesystem::exists(candidate)) return candidate;
     }
-    mcpelauncher_preinithook = (decltype(mcpelauncher_preinithook)) dlsym(h, "mcpelauncher_preinithook");
-    dlclose(h);
-    try {
-        playapi::device_info device;
-        auto cachePath = getenv("GPLAY_TOKEN_CACHE_PATH");
-        if(!cachePath) {
-            return;
+    // fallback: append timestamp if all else fails
+    return base.string() + ".bck.fallback";
+}
+
+bool copy_file_portable(const std::filesystem::path& src,
+                        const std::filesystem::path& dst)
+{
+    std::ifstream in(src, std::ios::binary);
+    std::ofstream out(dst, std::ios::binary);
+
+    if (!in || !out)
+        return false;
+
+    static constexpr std::size_t BUF_SIZE = 1 << 16;
+    std::vector<char> buffer(BUF_SIZE);
+
+    while (in) {
+        in.read(buffer.data(), buffer.size());
+        std::streamsize n = in.gcount();
+        if (n > 0)
+            out.write(buffer.data(), n);
+    }
+
+    return out.good();
+}
+
+void copy_with_backup(const std::filesystem::path& src_root, const std::filesystem::path& dst_root) {
+    std::cout << "Start copy_with_backup" << src_root << " to " << dst_root << std::endl;
+    std::error_code ec;
+    for (auto it = std::filesystem::recursive_directory_iterator(src_root, ec); it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+        if (ec) {
+            std::cerr << "Traversal error: " << ec.message() << "\n";
+            continue;
         }
-        playapi::file_login_cache cache(cachePath);
-        playapi::login_api login_api(device, cache);
-        // login_api.set_token(getenv("GPLAY_MAIL"), getenv("GPLAY_TOKEN"));
-        login_api.set_token("l@localhost", "a");
-        playapi::api api(device);
-        playapi::checkin_result checkinResult;
-        checkinResult.time = 0;
-        auto sid = getenv("GPLAY_CHECKIN_ANDROID_ID");
-        if(!sid) {
-            return;
+        const std::filesystem::path src_path = it->path();
+        if(src_path.string().find(".so") == std::string::npos) {
+          continue;
         }
-        checkinResult.android_id = std::stoull(sid);
-        checkinResult.security_token = 0;
-        auto devver = getenv("GPLAY_CHECKIN_DEVICE_DATA_VERSION_INFO");
-        if(!devver) {
-            return;
+
+        std::cout << "f" << src_path << std::endl;
+        std::filesystem::path rel = std::filesystem::relative(src_path, src_root, ec);
+        if (ec) {
+            std::cerr << "Relative path error: " << ec.message() << "\n";
+            continue;
         }
-        checkinResult.device_data_version_info = devver;
-        api.set_checkin_data(checkinResult);
-        api.set_auth(login_api)->call();
-        api.details("com.mojang.minecraftpe")->call([&api](playapi::proto::finsky::response::ResponseWrapper&& resp) {
-            auto details = resp.payload().detailsresponse().docv2();
-            if(details.details().appdetails().versionstring() == "" || !details.details().appdetails().versioncode()) {
-                abort();
+        std::filesystem::path dst_path = dst_root / rel;
+        std::cout << "d" << dst_path << std::endl;
+
+        if (std::filesystem::is_directory(src_path)) {
+            if (!std::filesystem::exists(dst_path)) {
+                std::filesystem::create_directories(dst_path);
+                std::cout << "Created directory: " << dst_path << "\n";
             }
-            api.delivery("com.mojang.minecraftpe", details.details().appdetails().versioncode(), std::string())->call([](playapi::proto::finsky::response::ResponseWrapper&& resp) {
-                auto dd = resp.payload().deliveryresponse().appdeliverydata();
-                auto url = (dd.has_gzippeddownloadurl() ? dd.gzippeddownloadurl() : dd.downloadurl());
-                printf("Apk Url: %s\n", url.data());
-                if(url == "") {
-                    printf("Invalid Url\n");
+        } else if (std::filesystem::is_regular_file(src_path)) {
+            if (!std::filesystem::exists(dst_path)) {
+                std::filesystem::create_directories(dst_path.parent_path());
+                std::cout << "Copy new file: " << dst_path << "\n" << std::endl;
+                copy_file_portable(src_path, dst_path);
+                std::cout << "Copied new file: " << dst_path << "\n";
+            } else {
+                std::cout << "check identical: " << dst_path << "\n" << std::endl;
+                if (files_identical(src_path, dst_path)) {
+                    std::cout << "Unchanged, skipped: " << dst_path << "\n";
                 } else {
-#if defined(__arm__) || defined(__aarch64__)
-                    // Enable by default after mouse bug is resolved
-                    if(getenv("MCPELAUNCHER_ENABLE_SCROLL_HOOK") != nullptr) {
-                        mcpelauncher_preinithook("_ZN5Mouse4feedEccssss", (void*)&Mouse_feed, (void**)&Mouse_feed_org);
-                        mcpelauncher_preinithook("_ZN11MouseMapper4tickER15InputEventQueueR23ControllerIDtoClientMap", (void*)&MouseMapper_tick, (void**)&MouseMapper_tick_org);
-                    }
-#endif
-
-                    mcpelauncher_preinithook("pthread_getattr_np", (void*)+[](pthread_t th, pthread_attr_t* attr) -> int {
-                        return 1;
-                    }, &pthread_getattr_np_org);
-                    mcpelauncher_preinithook("pthread_attr_getstack", (void*)+[](pthread_attr_t* attr, void **stackaddr, size_t *stacksize) -> int {
-                        return 1;
-                    }, nullptr);
-                    mcpelauncher_preinithook("mremap", (void*)&mremap_fake, nullptr);
-                    //mcpelauncher_preinithook("_ZNK11AppPlatform17supportsScriptingEv", (void*)+[](void* t) -> bool { abort() ;return true; }, nullptr);
-                    __ZNK11AppPlatform12isLANAllowedEv = (void*)+[](void*** t) -> bool {
-                        auto mc = dlopen("libminecraftpe.so", 0);
-
-                        auto appPlat = (void**)dlsym(mc, "_ZTV11AppPlatform");
-                        auto raw = &appPlat[2];
-                        auto othervt = *t;
-#ifndef NDEBUG
-                        printf("AppPlatform:\n");
-                        for(int i = 0; raw[i] && raw[i] != (void*)0xffffffffffffffe8; i++) {
-                            Dl_info data;
-                            printf("%p (%s)\n", raw[i], dladdr(raw[i], &data) ? data.dli_sname : "(unknown)");
-                        }
-                        printf("othervt:\n");
-                        for(int i = 0; othervt[i] && othervt[i] != (void*)0xffffffffffffffe8; i++) {
-                            Dl_info data;
-                            printf("%p (%s)\n", othervt[i], dladdr(othervt[i], &data) ? data.dli_sname : "(unknown)");    
-                        }
-#endif
-                        auto _ZNK11AppPlatform19supportsFilePickingEv = (void**)dlsym(mc, "_ZNK11AppPlatform19supportsFilePickingEv");
-                        auto _ZNK11AppPlatform17supportsScriptingEv = (void**)dlsym(mc, "_ZNK11AppPlatform17supportsScriptingEv");
-                        auto _ZNK11AppPlatform25getPlatformUIScalingRulesEv = (void**)dlsym(mc, "_ZNK11AppPlatform25getPlatformUIScalingRulesEv");
-                        auto _ZNK11AppPlatform18supportsWorldShareEv = (void**)dlsym(mc, "_ZNK11AppPlatform18supportsWorldShareEv");
-                        auto _ZNK11AppPlatform20getLevelSaveIntervalEv = (void**)dlsym(mc, "_ZNK11AppPlatform20getLevelSaveIntervalEv");
-                        auto _ZNK11AppPlatform10getEditionEv = (void**)dlsym(mc, "_ZNK11AppPlatform10getEditionEv");
-                        auto _ZNK11AppPlatform27getDefaultNetworkMaxPlayersEv = (void**)dlsym(mc, "_ZNK11AppPlatform27getDefaultNetworkMaxPlayersEv");
-                        auto _ZNK11AppPlatform23supports3rdPartyServersEv = (void**)dlsym(mc, "_ZNK11AppPlatform23supports3rdPartyServersEv");
-                        auto _ZNK11AppPlatform29allowsResourcePackDevelopmentEv = (void**)dlsym(mc, "_ZNK11AppPlatform29allowsResourcePackDevelopmentEv");
-                        auto _ZNK11AppPlatform30supportsAutoSaveOnDBCompactionEv = (void**)dlsym(mc, "_ZNK11AppPlatform30supportsAutoSaveOnDBCompactionEv");
-                        auto _ZNK11AppPlatform23isAutoCompactionEnabledEv = (void**)dlsym(mc, "_ZNK11AppPlatform23isAutoCompactionEnabledEv");
-                        auto _ZN11AppPlatform22uiOpenRenderDistScalarEv =  (void**)dlsym(mc, "_ZN11AppPlatform22uiOpenRenderDistScalarEv");
-
-                        for(int i = 0; raw[i] && raw[i] != (void*)0xffffffffffffffe8; i++) {
-                            if(raw[i] == _ZNK11AppPlatform19supportsFilePickingEv) {
-                                othervt[i] = (void*) +[](void*t) -> bool {
-                                    printf("_ZNK11AppPlatform19supportsFilePickingEv called\n");
-                                    return true;
-                                };
-                                printf("Patched _ZNK11AppPlatform19supportsFilePickingEv\n");
-                            }
-                            if(raw[i] == _ZNK11AppPlatform17supportsScriptingEv) {
-                                othervt[i] = (void*) +[](void*t) -> bool {
-                                    printf("_ZNK11AppPlatform17supportsScriptingEv called\n");
-                                    return true;
-                                };
-                                printf("Patched _ZNK11AppPlatform17supportsScriptingEv\n");
-                            }
-                            if(raw[i] == _ZNK11AppPlatform25getPlatformUIScalingRulesEv) {
-                                othervt[i] = (void*) +[](void*t) -> int {
-                                    printf("_ZNK11AppPlatform25getPlatformUIScalingRulesEv called\n");
-                                    return 0;
-                                };
-                                printf("Patched _ZNK11AppPlatform25getPlatformUIScalingRulesEv\n");
-                            }
-                            if(raw[i] == _ZNK11AppPlatform18supportsWorldShareEv) {
-                                othervt[i] = (void*) +[](void*t) -> bool {
-                                    printf("_ZNK11AppPlatform18supportsWorldShareEv called\n");
-                                    return true;
-                                };
-                                printf("Patched _ZNK11AppPlatform18supportsWorldShareEv\n");
-                            }
-                            if(raw[i] == _ZNK11AppPlatform10getEditionEv) {
-                                othervt[i] = (void*) +[](void*t) -> std::string {
-                                    printf("_ZNK11AppPlatform10getEditionEv called\n");
-                                    return "win10";
-                                };
-                                printf("Patched _ZNK11AppPlatform10getEditionEv\n");
-                            }
-                            if(raw[i] == _ZNK11AppPlatform27getDefaultNetworkMaxPlayersEv) {
-                                othervt[i] = (void*) +[](void*t) -> int {
-                                    printf("_ZNK11AppPlatform27getDefaultNetworkMaxPlayersEv called\n");
-                                    return 100;
-                                };
-                                printf("Patched _ZNK11AppPlatform27getDefaultNetworkMaxPlayersEv\n");
-                            }
-                            if(raw[i] == _ZNK11AppPlatform29allowsResourcePackDevelopmentEv) {
-                                othervt[i] = (void*) +[](void*t) -> bool {
-                                    printf("_ZNK11AppPlatform29allowsResourcePackDevelopmentEv called\n");
-                                    return false;
-                                };
-                                printf("Patched _ZNK11AppPlatform29allowsResourcePackDevelopmentEv\n");
-                            }
-                            if(raw[i] == _ZN11AppPlatform22uiOpenRenderDistScalarEv) {
-                                othervt[i] = (void*) +[](void*t) -> int {
-                                    printf("_ZN11AppPlatform22uiOpenRenderDistScalarEv called\n");
-                                    return 512;
-                                };
-                                printf("Patched _ZN11AppPlatform22uiOpenRenderDistScalarEv\n");
-                            }
-                            if(othervt[i] == __ZNK11AppPlatform12isLANAllowedEv) {
-                                othervt[i] = _ZNK11AppPlatform12isLANAllowedEv;
-                                printf("Patched __ZNK11AppPlatform12isLANAllowedEv back to org\n");
-                            }
-                        }
-
-                        dlclose(mc);    
-                        return true;
-                    };
-                    mcpelauncher_preinithook("_ZNK11AppPlatform12isLANAllowedEv", __ZNK11AppPlatform12isLANAllowedEv, &_ZNK11AppPlatform12isLANAllowedEv);
+                    std::cout << "Update file: " << dst_path << "\n" << std::endl;
+                    std::filesystem::path backup = make_backup_path(dst_path);
+                    std::filesystem::create_directories(backup.parent_path());
+                    std::filesystem::rename(dst_path, backup);
+                    copy_file_portable(src_path, dst_path);
+                    std::cout << "Backed up: " << backup << "  -> replaced with: " << dst_path << "\n";
                 }
-            }, [](std::exception_ptr e) {
-            });
-        }, [](std::exception_ptr e) {
-        });
-    } catch(...) {
+            }
+        } else {
+            std::cout << "Skipping non-regular file: " << src_path << "\n";
+        }
     }
 }
 
-extern "C" __attribute__ ((visibility ("default"))) void mod_init() {
-    auto mc = dlopen("libminecraftpe.so", 0);
-    enqueueButtonPressAndRelease = (decltype(enqueueButtonPressAndRelease))dlsym(mc, "_ZN15InputEventQueue28enqueueButtonPressAndReleaseEj11FocusImpacti");
-    dlclose(mc);
+static size_t ___strlcpy_chk(char* dst, const char* src, size_t dst_len, size_t src_len) {
+    return strlcpy(dst, src, dst_len);
+}
+
+static bool symbolsAdded = false;
+
+static bool androidAndChromeOSIntelArm64(int code, int low, int high) {
+  int prefixes[] = { 970000000, 980000000, 1970000000, 1980000000 };
+  for(auto prefix : prefixes) {
+    if(code >= (prefix + low) && code < (prefix + high)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void add_symbols() {
+  if(symbolsAdded) {
+    return;
+  }
+  symbolsAdded = true;
+  static auto dlsym_ptr = (dlsym_fn)dlsym(RTLD_NEXT, cryptstring("dlsym"));
+
+  auto dlopen_ptr =
+    (void *(*)(const char *, int))dlsym_ptr(RTLD_NEXT, cryptstring("dlopen"));
+  auto dlclose_ptr =
+    (void(*)(void *))dlsym_ptr(RTLD_NEXT, cryptstring("dlclose"));
+
+  static auto mcpelauncher_mod = dlopen_ptr(cryptstring("libmcpelauncher_mod.so"), RTLD_NOLOAD);
+  if(mcpelauncher_mod == nullptr) {
+    IF_DEBUG(std::cout << cryptstring("mcpelauncher_mod not found") << std::endl);
+    return;
+  }
+
+  auto mcpelauncher_relocate =
+    (void (*)(void* handle, const char* name, void* hook))dlsym_ptr(mcpelauncher_mod, cryptstring("mcpelauncher_relocate"));
+  
+  if(!mcpelauncher_relocate) {
+    IF_DEBUG(std::cout << cryptstring("mcpelauncher_relocate not found") << std::endl);
+    return;
+  }
+  
+  auto libc = dlopen_ptr(cryptstring("libc.so"), RTLD_NOLOAD);
+  if(libc == nullptr) {
+    IF_DEBUG(std::cout << cryptstring("libc.so not found") << std::endl);
+    return;
+  }
+
+  IF_DEBUG(std::cout << cryptstring("relocate") << std::endl);
+
+  mcpelauncher_relocate(libc, cryptstring("__strlcpy_chk"), (void*)&___strlcpy_chk);
+
+  auto mcpelauncher_package_version_code =
+  (int*)dlsym_ptr(mcpelauncher_mod, cryptstring("mcpelauncher_package_version_code"));
+  
+  if(!mcpelauncher_package_version_code) {
+    IF_DEBUG(std::cout << cryptstring("mcpelauncher_package_version_code not found") << std::endl);
+    return;
+  }
+
+  if(androidAndChromeOSIntelArm64(*mcpelauncher_package_version_code, 2113000, 2602999)) {
+    Dl_info info;
+    dladdr((void*)&___strlcpy_chk, &info);
+    dlopen_ptr((std::filesystem::path(info.dli_fname).parent_path() / cryptstring("patches") / cryptstring("libPlayFabMultiplayer.so")).c_str(), RTLD_NOW);
+    IF_DEBUG(std::cout << std::filesystem::path(info.dli_fname).parent_path() / cryptstring("patches") / cryptstring("libPlayFabMultiplayer.so") << std::endl);
+
+    if(androidAndChromeOSIntelArm64(*mcpelauncher_package_version_code, 2601000, 2602999)) { 
+      std::filesystem::path outPath{std::filesystem::path(info.dli_fname).parent_path() / cryptstring("patches") / "v1.26.0.2/" ARCH_FOLDER};
+      std::filesystem::create_directories(outPath);
+
+      auto libcxx = dlopen_ptr("libc++_shared.so", 0);
+      
+      Dl_info game;
+      dladdr(dlsym(libcxx, "_ZTIPs"), &game);
+      std::cout << std::filesystem::path(game.dli_fname).parent_path() << std::endl;
+      std::cout << "Start copy_with_backup" << std::endl;
+      copy_with_backup(outPath, std::filesystem::path(game.dli_fname).parent_path());
+      std::cout << "End copy_with_backup" << std::endl;
+    }
+
+    auto mcpelauncher_unload_library =
+      (void (*)(void*))dlsym_ptr(mcpelauncher_mod, cryptstring("mcpelauncher_unload_library"));
+
+    if(!mcpelauncher_unload_library) {
+      IF_DEBUG(std::cout << cryptstring("mcpelauncher_unload_library not found") << std::endl);
+      return;
+    }
+    IF_DEBUG(std::cout << cryptstring("libfmod") << std::endl);
+
+    auto fmod = dlopen_ptr(cryptstring("libfmod.so").c_str(), 0);
+    IF_DEBUG(std::cout << cryptstring("libfmod") << (intptr_t)fmod << std::endl);
+
+    dlclose_ptr(fmod);
+    mcpelauncher_unload_library(fmod);
+  }
+  struct __emutlsControl {
+      size_t size;
+      size_t align;
+      uintptr_t index;
+      void* value;
+  };
+  auto libcxx = dlopen_ptr("libc++_shared.so", 0);
+  static auto __emutls_get_address = (void*(*)(__emutlsControl* ctrl))dlsym_ptr(libcxx, cryptstring("__emutls_get_address"));
+  if(__emutls_get_address) {
+    mcpelauncher_relocate(libcxx, cryptstring("__emutls_get_address"), (void*)+[](__emutlsControl* ctrl) {
+        double scratch;
+        if(modf(log2(ctrl->align), &scratch) != 0.0) {
+            std::cout << "Corrupted __emutls_get_address alignment: " << ctrl->align << ", size=" << ctrl->size << ", index=" << ctrl->index << "value:" << ctrl->value << "\n";
+            ctrl->size = 64;
+            ctrl->align = 8;
+            ctrl->index = 0;
+            ctrl->value = nullptr;
+        }
+        return __emutls_get_address(ctrl);
+    });
+  }
+}
+
+extern "C" void mod_init();
+
+__attribute__((visibility("default"))) jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+  JNIEnv* env = nullptr;
+  vm->GetEnv((void**)&env, JNI_VERSION_1_6);
+#ifdef ENABLE_VALIDATION
+  ::env = env;
+  validate(+[]() {
+    add_symbols();
+  });
+#endif
+  static auto dlsym_ptr = (dlsym_fn)dlsym(RTLD_NEXT, cryptstring("dlsym"));
+
+  auto dlopen_ptr =
+    (void *(*)(const char *, int))dlsym_ptr(RTLD_NEXT, cryptstring("dlopen"));
+  auto mcpelauncher_mod = dlopen_ptr(cryptstring("libmcpelauncher_mod.so"), RTLD_NOLOAD);
+  if(mcpelauncher_mod == nullptr) {
+    IF_DEBUG(std::cout << cryptstring("mcpelauncher_mod not found") << std::endl);
+    return 0;
+  }
+
+  auto jnivm_register_method =
+    (bool (*)(JNIEnv* env, jclass cl, int type, const char* name, const char* signature, jvalue (*cbk)(JNIEnv* env, jobject thiz, jvalue* values)))dlsym_ptr(mcpelauncher_mod, cryptstring("jnivm_register_method"));
+
+  jclass vmRunner = env->FindClass("com/pairip/VMRunner");
+
+  jnivm_register_method(env, vmRunner, 3, cryptstring("invoke").c_str(), cryptstring("(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;").c_str(),
+    +[](JNIEnv* env, jobject thiz, jvalue* values) -> jvalue {
+#ifdef ENABLE_VALIDATION
+      ::env = env;
+#endif
+      mod_init();
+      jvalue ret{};
+      return ret;
+    }
+  );
+
+  auto pairipcore = dlopen_ptr(cryptstring("libpairipcore.so"), 0);
+  if (pairipcore == nullptr) {
+    IF_DEBUG(std::cerr << "Error opening pairipcore: " << dlerror()
+                       << std::endl);
+    return 0;
+  }
+  auto JNI_OnLoad_ptr =
+      (jint (*)(JavaVM *vm, void *reserved))dlsym_ptr(pairipcore, cryptstring("JNI_OnLoad"));
+  if (JNI_OnLoad_ptr == nullptr) {
+    IF_DEBUG(std::cerr << "Error finding JNI_OnLoad in pairipcore: " << dlerror()
+                       << std::endl);
+  }
+  JNI_OnLoad_ptr(vm, reserved);
+  return 0;
+}
+
+__attribute__((visibility("default"))) extern "C" void mod_preinit() {
+  add_symbols();
+}
+
+__attribute__((visibility("default"))) extern "C" void mod_init() {
+  validate(+[]() {});
 }

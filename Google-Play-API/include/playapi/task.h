@@ -98,12 +98,12 @@ public:
     }
 
     void call(Args&&... args, std::function<void ()> success, std::function<void (std::exception_ptr)> error) override {
-        try {
+        // try {
             func(std::forward<Args...>(args)...);
             success();
-        } catch (std::exception& e) {
-            error(std::current_exception());
-        }
+        // } catch (std::exception& e) {
+        //     error(std::current_exception());
+        // }
     }
 
     void call(Args&&... args) override {
@@ -127,11 +127,11 @@ public:
     }
 
     void call(Args&&... args, std::function<void (T&&)> success, std::function<void (std::exception_ptr)> error) override {
-        try {
+        // try {
             success(func(std::forward<Args...>(args)...));
-        } catch (std::exception& e) {
-            error(std::current_exception());
-        }
+        // } catch (std::exception& e) {
+        //     error(std::current_exception());
+        // }
     }
 
     T call(Args&&... args) override {
@@ -156,14 +156,14 @@ public:
 
     void call(Args&&... args, std::function<void (T&&)> success, std::function<void (std::exception_ptr)> error) override {
         task_ptr<T> ret;
-        try {
+        // try {
             ret = func(std::forward<Args...>(args)...);
             if (!ret)
-                throw std::runtime_error("flat_function_task's function must return a valid pointer");
-        } catch (std::exception& e) {
-            error(std::current_exception());
-            return;
-        }
+                {} // throw std::runtime_error("flat_function_task's function must return a valid pointer");
+        // } catch (std::exception& e) {
+        //     error(std::current_exception());
+        //     return;
+        // }
         ret->call(success, error);
     }
 

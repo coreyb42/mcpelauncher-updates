@@ -1,13 +1,19 @@
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required (VERSION 2.6...4.0)
 
-project(mcpelauncherupdates LANGUAGES CXX)
+project(mcpelauncher-updates LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 find_library(log-lib log)
 
-add_subdirectory(libjnivm)
-add_subdirectory(Webserver)
-add_subdirectory(Google-Play-API)
-add_library(mcpelauncherupdates SHARED src/main.cpp)
-target_link_libraries(mcpelauncherupdates PUBLIC jnivm gplayapi ${log-lib})
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_CONFORMANCE OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_PROTOC_BINARIES OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_LIBPROTOC OFF CACHE BOOL "" FORCE)
+set(protobuf_DISABLE_RTTI ON CACHE BOOL "" FORCE)
+add_subdirectory(protobuf)
+add_subdirectory(google-play-api)
+add_library(mcpelauncher-updates SHARED src/main.cpp)
+target_compile_definitions(mcpelauncher-updates PRIVATE ENABLE_VALIDATION)
+target_link_libraries(mcpelauncher-updates PUBLIC libprotobuf gplayapi)

@@ -37,7 +37,8 @@ void api::set_checkin_data(const checkin_result& result) {
 
 std::string api::build_user_agent() {
     std::stringstream ua;
-    ua << "Android-Finsky/14.2.63-all [0] [PR] 240807813 (api=3,versionCode=81426300,";
+    ua << "Android-Finsky/" << device.vending_version_string << " (api=3,";
+    ua << "versionCode=" << device.vending_version << ",";
     ua << "sdk=" << device.build_sdk_version << ",";
     ua << "device=" << device.build_device << ",";
     ua << "hardware=" << device.build_product << ",";
@@ -94,7 +95,7 @@ api::request_task api::send_request(http_method method, const std::string& path,
     req.set_body(bin_data);
     return http_task::make(req)->then<ret_type>([this, method, path, bin_data, options](http_response&& resp) {
         if (!resp)
-            throw std::runtime_error("Failed to send request");
+        {} //    throw std::runtime_error("Failed to send request");
         if (resp.get_status_code() == 401) {
             return invalidate_token()->then<ret_type>([this, method, path, bin_data, options]() {
                 return send_request(method, path, bin_data, options);
@@ -102,7 +103,7 @@ api::request_task api::send_request(http_method method, const std::string& path,
         }
         ret_type ret;
         if (!ret.ParseFromString(resp.get_body()))
-            throw std::runtime_error("Failed to parse response");
+        {} //    throw std::runtime_error("Failed to parse response");
 #ifndef NDEBUG
         printf("api response body = %s\n", ret.DebugString().c_str());
 #endif

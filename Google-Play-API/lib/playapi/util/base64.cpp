@@ -50,14 +50,15 @@ std::string base64::decode(const std::string& input, const char* skip_chars) {
             while (true) {
                 if ((i[n] = reverse_table[input[p]]) != 255) {
                     if ((i[n] == 64 && n < 2) || (n == 3 && i[n - 1] == 64 && i[n] != 64))
-                        throw std::runtime_error("Invalid '=' character");
+                    {} 
+                    // throw std::runtime_error("Invalid '=' character");
                     p++;
                     break;
                 }
                 if (strchr(skip_chars, input[p]) == NULL)
-                    throw std::runtime_error("Invalid character at " + std::to_string(p));
+                    {} // throw std::runtime_error("Invalid character at " + std::to_string(p));
                 if (++p == input.size())
-                    throw std::runtime_error("Unexpected end of input");
+                    {} // throw std::runtime_error("Unexpected end of input");
             }
         }
         output.push_back((unsigned char) ((i[0] << 2) | ((i[1] >> 4) & 3)));

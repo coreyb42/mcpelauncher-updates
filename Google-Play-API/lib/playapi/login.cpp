@@ -1,6 +1,7 @@
 #include <iostream>
 #include <pwd.h>
 #include <cstring>
+#include <sstream>
 #include <playapi/login.h>
 #include <playapi/util/http.h>
 #include <playapi/device_info.h>
@@ -70,9 +71,14 @@ std::string login_api::handle_response(http_response& resp, login_request const&
         i = k + 1;
     }
     if (respValMap.count("Error") > 0)
-        throw std::runtime_error("Login error: " + respValMap.at("Error"));
-    if (respValMap.count("Auth") <= 0)
-        throw std::runtime_error("No auth cookie field returned");
+    {} //    throw std::runtime_error("Login error: " + respValMap.at("Error"));
+    if (respValMap.count("Auth") <= 0) {
+        std::stringstream errormsg;
+        errormsg << "No auth cookie field returned with statuscode:  " << resp.get_status_code();
+        errormsg << ", body:\n" << body;
+        {} //throw std::runtime_error(errormsg.str().data());
+    }
+
     auto auth_val = respValMap.at("Auth");
     auto expires = start;
     if (respValMap.count("Expires") > 0) {
@@ -86,12 +92,12 @@ std::string login_api::handle_response(http_response& resp, login_request const&
     cache.cache(request.service, request.app, auth_val, expires);
     if (request.via_password || request.is_access_token) {
         if (respValMap.count("Token") <= 0)
-            throw std::runtime_error("No Oauth2 token returned");
+        {} //    throw std::runtime_error("No Oauth2 token returned");
         set_token(request.email, respValMap.at("Token"));
     }
     if (request.is_access_token) {
         if (respValMap.count("Email") <= 0)
-            throw std::runtime_error("No Email returned");
+        {} //    throw std::runtime_error("No Email returned");
         this->email = respValMap.at("Email");
     }
     return auth_val;
@@ -115,7 +121,7 @@ task_ptr<void> login_api::verify() {
 task_ptr<std::string> login_api::fetch_service_auth_cookie(const std::string& service, const std::string& app,
                                                            certificate cert, bool force_refresh) {
     if (token.empty())
-        throw std::runtime_error("No user authenticated.");
+    {} //    throw std::runtime_error("No user authenticated.");
     auto cookie = cache.get_cached(service, app);
     if (!cookie.empty() && !force_refresh)
         return pre_set_task<std::string>::make(cookie);

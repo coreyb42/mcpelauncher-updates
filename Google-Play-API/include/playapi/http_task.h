@@ -19,11 +19,11 @@ public:
 
     void call(std::function<void (http_response&&)> success, std::function<void (std::exception_ptr)> error) override {
         req.perform([success, error](http_response resp) {
-            try {
+            // try {
                 success(std::move(resp));
-            } catch (std::exception& e) {
-                error(std::current_exception());
-            }
+            // } catch (std::exception& e) {
+            //     error(std::current_exception());
+            // }
         }, error);
     }
 

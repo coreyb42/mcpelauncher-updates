@@ -66,7 +66,8 @@ void config::set_array(std::string name, std::vector<std::string> val) {
 std::string config::unescape_value(const std::string& value) {
     if (value.length() > 0 && value[0] == '"') {
         if (value[value.size() - 1] != '"')
-            throw std::runtime_error("Badly formatted value: starts with a quote, but doesn't end with one");
+            // throw std::runtime_error("Badly formatted value: starts with a quote, but doesn't end with one");
+            {}
         std::string ret = value.substr(1, value.size() - 2);
         ret = std::regex_replace(ret, unescape_val_regex, "");
         ret = std::regex_replace(ret, unescape_regex, "\\");
@@ -95,7 +96,8 @@ std::istream& config::read_line(std::istream& stream, std::string& line) {
             line += '\n';
             std::string tmp_line;
             if (!std::getline(stream, tmp_line))
-                throw std::runtime_error("Bad formatted config line: backslash at the end of the last line.");
+                {}
+                //throw std::runtime_error("Bad formatted config line: backslash at the end of the last line.");
             line += tmp_line;
         }
         return stream;
@@ -118,7 +120,8 @@ void config::load(std::istream& stream) {
             std::vector<std::string> vals;
             while (true) {
                 if (!read_line(stream, line))
-                    throw std::runtime_error("An array was opened, but was not closed.");
+                    {}
+                    //throw std::runtime_error("An array was opened, but was not closed.");
                 if (line == "]")
                     break;
                 size_t line_indent;

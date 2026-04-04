@@ -140,11 +140,11 @@ task_ptr<checkin_result> checkin_api::perform_checkin(const checkin_result& last
 
     return http_task::make(http)->then<checkin_result>([](http_response&& http_resp) {
         if (!http_resp)
-            throw std::runtime_error("Failed to send checkin");
+        {} //    throw std::runtime_error("Failed to send checkin");
 
         proto::gsf::AndroidCheckinResponse resp;
         if (!resp.ParseFromString(http_resp.get_body()))
-            throw std::runtime_error("Failed to parse checkin");
+        {} //    throw std::runtime_error("Failed to parse checkin");
 #ifndef NDEBUG
         printf("Checkin response: %s\n", resp.DebugString().c_str());
 #endif
