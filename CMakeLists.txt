@@ -3,6 +3,7 @@ cmake_minimum_required (VERSION 2.6...4.0)
 project(mcpelauncher-updates LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+option(MCPELAUNCHER_UPDATES_VALIDATE "Enable Google Play validation and patch download" ON)
 
 find_library(log-lib log)
 
@@ -15,5 +16,7 @@ set(protobuf_DISABLE_RTTI ON CACHE BOOL "" FORCE)
 add_subdirectory(protobuf)
 add_subdirectory(Google-Play-API)
 add_library(mcpelauncher-updates SHARED src/main.cpp)
-target_compile_definitions(mcpelauncher-updates PRIVATE ENABLE_VALIDATION)
+if(MCPELAUNCHER_UPDATES_VALIDATE)
+  target_compile_definitions(mcpelauncher-updates PRIVATE ENABLE_VALIDATION)
+endif()
 target_link_libraries(mcpelauncher-updates PUBLIC libprotobuf gplayapi)

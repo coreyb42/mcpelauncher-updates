@@ -337,5 +337,9 @@ __attribute__((visibility("default"))) extern "C" void mod_preinit() {
 }
 
 __attribute__((visibility("default"))) extern "C" void mod_init() {
+#ifdef ENABLE_VALIDATION
   validate(+[]() {});
+#else
+  add_symbols();
+#endif
 }
