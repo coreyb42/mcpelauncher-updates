@@ -218,13 +218,16 @@ static void add_symbols() {
     return;
   }
 
-  if(androidAndChromeOSIntelArm64(*mcpelauncher_package_version_code, 2113000, 2602999)) {
+  // 1.26.45.x uses version code 26045xx. Keep the DRM compatibility module
+  // enabled through that maintained release line as well as the prior 1.26.x
+  // releases; the replacement PlayFab library is ABI-compatible across it.
+  if(androidAndChromeOSIntelArm64(*mcpelauncher_package_version_code, 2113000, 2604999)) {
     Dl_info info;
     dladdr((void*)&___strlcpy_chk, &info);
     dlopen_ptr((std::filesystem::path(info.dli_fname).parent_path() / cryptstring("patches") / cryptstring("libPlayFabMultiplayer.so")).c_str(), RTLD_NOW);
     IF_DEBUG(std::cout << std::filesystem::path(info.dli_fname).parent_path() / cryptstring("patches") / cryptstring("libPlayFabMultiplayer.so") << std::endl);
 
-    if(androidAndChromeOSIntelArm64(*mcpelauncher_package_version_code, 2601000, 2602999)) { 
+    if(androidAndChromeOSIntelArm64(*mcpelauncher_package_version_code, 2601000, 2604999)) { 
       std::filesystem::path outPath{std::filesystem::path(info.dli_fname).parent_path() / cryptstring("patches") / "v1.26.0.2/" ARCH_FOLDER};
       std::filesystem::create_directories(outPath);
 
