@@ -7,8 +7,17 @@
 #include <vector>
 #include <jni.h>
 #include <filesystem>
+#include <fstream>
 #include <cmath>
 #include <jni.h>
+
+#ifdef __aarch64__
+#define ARCH_FOLDER "arm64-v8a"
+#else
+#define ARCH_FOLDER "x86_64"
+#endif
+
+using dlsym_fn = void *(*)(void *handle, const char *name);
 
 struct cryptstring {
   const char* _ptr;
