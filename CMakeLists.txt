@@ -4,6 +4,7 @@ project(mcpelauncher-updates LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 option(MCPELAUNCHER_UPDATES_VALIDATE "Enable Google Play validation and patch download" ON)
+option(MCPELAUNCHER_UPDATES_STANDALONE "Skip the PairIP JNI bridge for non-Android hosts" OFF)
 
 find_library(log-lib log)
 
@@ -18,5 +19,8 @@ add_subdirectory(Google-Play-API)
 add_library(mcpelauncher-updates SHARED src/main.cpp)
 if(MCPELAUNCHER_UPDATES_VALIDATE)
   target_compile_definitions(mcpelauncher-updates PRIVATE ENABLE_VALIDATION)
+endif()
+if(MCPELAUNCHER_UPDATES_STANDALONE)
+  target_compile_definitions(mcpelauncher-updates PRIVATE MCPELAUNCHER_UPDATES_STANDALONE)
 endif()
 target_link_libraries(mcpelauncher-updates PUBLIC libprotobuf gplayapi)

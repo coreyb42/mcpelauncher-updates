@@ -291,6 +291,12 @@ static void add_symbols() {
 extern "C" void mod_init();
 
 __attribute__((visibility("default"))) jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+#ifdef MCPELAUNCHER_UPDATES_STANDALONE
+  // On non-Android hosts the launcher invokes mod_preinit directly. Re-entering
+  // PairIP through the Android JNI bridge is unnecessary and can trip its
+  // platform-integrity signal path before the compatibility hooks are applied.
+  return JNI_VERSION_1_6;
+#else
   JNIEnv* env = nullptr;
   vm->GetEnv((void**)&env, JNI_VERSION_1_6);
 #ifdef ENABLE_VALIDATION
@@ -339,6 +345,7 @@ __attribute__((visibility("default"))) jint JNI_OnLoad(JavaVM *vm, void *reserve
   }
   JNI_OnLoad_ptr(vm, reserved);
   return 0;
+#endif
 }
 
 __attribute__((visibility("default"))) extern "C" void mod_preinit() {
